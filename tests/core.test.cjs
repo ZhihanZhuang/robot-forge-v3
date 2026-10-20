@@ -1,0 +1,27 @@
+const assert=require('node:assert/strict');
+const F=require('../core.js');let count=0;
+function test(name,fn){fn();count++;console.log('PASS',name);}
+const templates=F.templates(),get=n=>F.clone(templates.find(r=>r.name===n));
+test('Nine templates use the public component catalog',()=>{assert.equal(templates.length,9);for(const r of templates){F.validate(r);assert(r.components.every(c=>F.catalog[c.type]));assert(F.stats(r).capacity>0);}});
+test('Clones and battles do not mutate source templates',()=>{const r=F.spawn(templates[0],0,0);r.components[0].hp=0;assert(templates[0].components[0].hp>0);});
+test('Ground drivetrain accelerates',()=>{const r=F.spawn(get('RAMMER'),0,0);F.step(r,{forward:1},.1);assert(r.vz<0);});
+test('Removed drive motors prevent acceleration',()=>{const r=F.spawn(get('RAMMER'),0,0);r.components=r.components.filter(c=>c.type!=='motor');F.step(r,{forward:1},.1);assert.equal(r.vz,0);});
+test('Disconnected motors prevent acceleration',()=>{const r=F.spawn(get('RAMMER'),0,0);r.components.filter(c=>c.type==='motor').forEach(c=>c.connected=false);F.step(r,{forward:1},.1);assert.equal(r.vz,0);});
+test('Dead battery disables a robot',()=>{const r=F.spawn(get('RAMMER'),0,0);F.alive(r,'battery')[0].hp=0;F.step(r,{},.1);assert(r.disabled);});
+test('Empty battery disables a robot',()=>{const r=F.spawn(get('RAMMER'),0,0);r.charge=0;F.step(r,{forward:1},.1);assert(r.disabled);assert.equal(r.vz,0);});
+test('Track sprocket loss affects only its own side',()=>{const r=get('TANK');r.components.find(c=>c.type==='sprocket'&&c.side==='left').hp=0;assert.equal(F.driveSide(r,'left'),0);assert(F.driveSide(r,'right')>0);});
+test('Stock drone has more lift than weight',()=>assert(F.stats(get('COMBAT DRONE')).twr>1));
+test('Propeller damage reduces lift',()=>{const r=get('COMBAT DRONE'),before=F.stats(r).thrust;F.alive(r,'propeller')[0].hp=0;assert(F.stats(r).thrust<before);});
+test('ESC damage reduces lift',()=>{const r=get('COMBAT DRONE'),before=F.stats(r).thrust;F.alive(r,'esc')[0].hp=0;assert(F.stats(r).thrust<before);});
+test('Disconnected lift motors produce no thrust',()=>{const r=get('COMBAT DRONE');F.alive(r,'brushless').forEach(c=>c.connected=false);assert.equal(F.stats(r).thrust,0);});
+test('Drone climbs and altitude stays bounded',()=>{const r=F.spawn(get('COMBAT DRONE'),0,0);for(let i=0;i<1200;i++)F.step(r,{lift:1},1/60);assert(r.alt>0&&r.alt<=12);});
+test('Failed controller prevents lift',()=>{const r=F.spawn(get('COMBAT DRONE'),0,0);F.alive(r,'flight')[0].hp=0;F.step(r,{lift:1},.1);assert.equal(r.alt,0);});
+test('Spinner spins up using ordinary components',()=>{const r=F.spawn(get('SPINNER'),0,0);F.step(r,{},.1);assert(r.spin>0);});
+test('Broken belt prevents spin-up',()=>{const r=F.spawn(get('SPINNER'),0,0);F.alive(r,'belt')[0].hp=0;F.step(r,{},.1);assert.equal(r.spin,0);});
+test('Pulse firing has recoil, heat, ammo and energy cost',()=>{const r=F.spawn(get('RAPID-FIRE ROVER'),0,0),target=F.spawn(get('TANK'),0,-5),shots=[],charge=r.charge;F.attack(r,target,.1,true,shots);assert.equal(shots.length,1);assert(r.vz>0);assert(F.alive(r,'projectile')[0].heat>0);assert.equal(r.ammo,39);assert(r.charge<charge);});
+test('Broken mount prevents firing',()=>{const r=F.spawn(get('RAPID-FIRE ROVER'),0,0),shots=[];F.alive(r,'mount')[0].hp=0;F.attack(r,F.spawn(get('TANK'),0,-3),.1,true,shots);assert.equal(shots.length,0);});
+test('Impact damages a component, not universal HP',()=>{const r=F.spawn(get('RAMMER'),0,0),before=F.stats(r).hp;const c=F.hurt(r,20,0,-2);assert(c);assert.equal(F.stats(r).hp,before-20);assert.equal(r.hp,undefined);});
+test('Flipper launches a nearby forward opponent',()=>{const r=F.spawn(get('FLIPPER'),0,0),target=F.spawn(get('SPEEDSTER'),0,-3);F.attack(r,target,.1,true,[]);assert(target.vy>0);});
+test('JSON round trip preserves assemblies and controls',()=>{const r=get('SPINNER');r.controls.forward='arrowup';assert.deepEqual(F.validate(JSON.parse(JSON.stringify(r))),r);});
+test('Invalid and oversized imports are rejected',()=>{assert.throws(()=>F.validate({version:99}));const r=get('RAMMER');r.components[0].mass=-1;assert.throws(()=>F.validate(r));const d=get('RAMMER');d.components[0].id=d.components[1].id;assert.throws(()=>F.validate(d));});
+console.log(`${count} tests passed.`);
